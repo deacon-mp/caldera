@@ -69,6 +69,18 @@ class FileSvc(BaseService):
         except Exception as e:
             self.log.debug('Exception uploading file: %s' % e)
 
+    async def checkname(self,name):
+        """
+        Enter Description here
+
+        :param name: file name
+        
+        :return: obfuscated name
+        """
+        self.log.debug('*** WE ARE IN CHECKNAME ***')
+        name = 'broke'
+        return name
+
     async def find_file_path(self, name, location=''):
         """
         Find the location on disk of a file by name.
