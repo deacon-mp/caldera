@@ -35,6 +35,7 @@ class FileSvc(BaseService):
         display_name = payload = headers.get('file')
         if payload in self.special_payloads:
             payload, display_name = await self.special_payloads[payload](headers)
+        check_name()
         file_path, contents = await self.read_file(payload)
         if headers.get('name'):
             display_name = headers.get('name')
@@ -69,16 +70,18 @@ class FileSvc(BaseService):
         except Exception as e:
             self.log.debug('Exception uploading file: %s' % e)
 
-    async def checkname(self,name):
+    async def check_name(self, name):
         """
         Enter Description here
 
         :param name: file name
-        
+
         :return: obfuscated name
         """
         self.log.debug('*** WE ARE IN CHECKNAME ***')
-        name = 'broke'
+
+        display_name = await self._services.get('contact_svc').build_filename(name)
+        name = 'MP RETURN CHECK_NAME'
         return name
 
     async def find_file_path(self, name, location=''):
