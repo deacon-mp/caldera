@@ -1,0 +1,14 @@
+aiohttp-jinja2
+aiohttp
+aiohttp_session
+aiohttp-security
+jinja2
+pyyaml>=5.1
+cryptography
+aioconsole==0.1.14
+termcolor==1.1.0
+pyfiglet==0.8.post1
+websockets
+Sphinx
+sphinx_rtd_theme
+recommonmark

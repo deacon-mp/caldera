@@ -1,0 +1,9 @@
+facts:
+- score: 1
+  trait: host.user.name
+  value: root
+- score: 1
+  trait: remote.host.ip
+  value: 10.0.2.2
+id: dcc83217-bedb-4278-b140-f345c6b6bec9
+name: asdfsadfsadf
