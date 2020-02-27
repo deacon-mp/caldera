@@ -2,6 +2,7 @@ import ast
 import asyncio
 import copy
 import re
+import logging
 import uuid
 from collections import defaultdict
 from datetime import datetime
@@ -11,7 +12,6 @@ from random import randint
 
 from app.objects.c_adversary import Adversary
 from app.utility.base_object import BaseObject
-
 
 REDACTED = '**REDACTED**'
 
@@ -66,6 +66,7 @@ class Operation(BaseObject):
                                planner=self.planner.name if self.planner else '',
                                start=self.start.strftime('%Y-%m-%d %H:%M:%S') if self.start else '',
                                state=self.state, phase=self.phase, obfuscator=self.obfuscator,
+                               obfuscatePayload=self.obfuscatePayload,
                                autonomous=self.autonomous, finish=self.finish,
                                chain=[lnk.display for lnk in self.chain]))
 
@@ -78,7 +79,9 @@ class Operation(BaseObject):
                     FINISHED='finished')
 
     def __init__(self, name, agents, adversary, id=None, jitter='2/8', source=None, planner=None, state='running',
-                 autonomous=True, phases_enabled=True, obfuscator='plain-text', group=None, auto_close=True,
+                 autonomous=True, phases_enabled=True, obfuscator='plain-text',
+                 obfuscatePayload=False,
+                 group=None, auto_close=True,
                  visibility=50, access=None):
         super().__init__()
         self.id = id
@@ -95,6 +98,7 @@ class Operation(BaseObject):
         self.phases_enabled = phases_enabled
         self.phase = 0
         self.obfuscator = obfuscator
+        self.obfuscatePayload = obfuscatePayload
         self.auto_close = auto_close
         self.visibility = visibility
         self.chain, self.rules = [], []
@@ -172,7 +176,7 @@ class Operation(BaseObject):
                     break
 
     async def is_closeable(self):
-        if self.auto_close and self.phase == len(self.adversary.phases):
+        if await self.is_finished() or (self.auto_close and self.phase >= len(self.adversary.phases)):
             self.state = self.states['FINISHED']
             return True
         return False
@@ -192,7 +196,7 @@ class Operation(BaseObject):
                 active.append(agent)
         return active
 
-    def report(self, output=False, redacted=False):
+    def report(self, file_svc, output=False, redacted=False):
         report = dict(name=self.name, host_group=[a.display for a in self.agents],
                       start=self.start.strftime('%Y-%m-%d %H:%M:%S'),
                       steps=[], finish=self.finish, planner=self.planner.name, adversary=self.adversary.display,
@@ -212,8 +216,8 @@ class Operation(BaseObject):
                                attack=dict(tactic=step.ability.tactic,
                                            technique_name=step.ability.technique_name,
                                            technique_id=step.ability.technique_id))
-            if output:
-                step_report['output'] = step.output
+            if output and step.output:
+                step_report['output'] = self.decode_bytes(file_svc.read_result_file(step.unique))
             agents_steps[step.paw]['steps'].append(step_report)
         report['steps'] = agents_steps
         report['skipped_abilities'] = self._get_skipped_abilities_by_agent()
@@ -225,25 +229,23 @@ class Operation(BaseObject):
         try:
             planner = await self._get_planning_module(services)
             self.adversary = await self._adjust_adversary_phases()
-            await self._run_phases(services, planner)
+            await self._run_phases(planner)
 
             self.phases_enabled = False
             while not await self.is_closeable():
                 await asyncio.sleep(10)
-                await self._update_operation(services)
-                await self._run_phases(services, planner)
+                await self._run_phases(planner)
             await self._cleanup_operation(services)
             await self.close()
             await self._save_new_source(services)
-        except Exception:
-            pass
+        except Exception as e:
+            logging.error(e, exc_info=True)
 
     """ PRIVATE """
 
-    async def _run_phases(self, services, planner):
+    async def _run_phases(self, planner):
         for phase in self.adversary.phases:
             if not await self.is_closeable():
-                await self._update_operation(services)
                 await planner.execute(phase)
                 if planner.stopping_condition_met:
                     break
@@ -279,7 +281,7 @@ class Operation(BaseObject):
         )
         await services.get('rest_svc').persist_source(data)
 
-    async def _update_operation(self, services):
+    async def update_operation(self, services):
         self.agents = await services.get('rest_svc').construct_agents_for_group(self.group)
 
     async def _unfinished_links_for_agent(self, paw):

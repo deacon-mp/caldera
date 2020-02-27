@@ -7,6 +7,7 @@ from datetime import datetime, date
 
 import aiohttp_jinja2
 import jinja2
+import yaml
 
 from app.contacts.contact_http import Http
 from app.contacts.contact_tcp import Tcp
@@ -97,8 +98,6 @@ class AppService(BaseService):
         :return:
         """
         for plug in os.listdir('plugins'):
-            if plug.startswith('.'):
-                continue
             if not os.path.isdir('plugins/%s' % plug) or not os.path.isfile('plugins/%s/hook.py' % plug):
                 self.log.error('Problem locating the "%s" plugin. Ensure code base was cloned recursively.' % plug)
                 exit(0)
@@ -113,6 +112,9 @@ class AppService(BaseService):
         aiohttp_jinja2.setup(self.application, loader=jinja2.FileSystemLoader(templates))
 
     async def retrieve_compiled_file(self, name, platform):
+        # if(name):
+        #     check_name = await self._services.get('file_svc').checkname(name)
+        #
         _, path = await self._services.get('file_svc').find_file_path('%s-%s' % (name, platform))
         signature = hashlib.md5(open(path, 'rb').read()).hexdigest()
         display_name = await self._services.get('contact_svc').build_filename(platform)
@@ -121,12 +123,10 @@ class AppService(BaseService):
 
     async def teardown(self):
         await self._destroy_plugins()
+        await self._save_configuration()
         await self._services.get('data_svc').save_state()
         await self._write_reports()
         self.log.debug('[!] shutting down server...good-bye')
-
-    async def add_app_plugin(self):
-        await self._services.get('data_svc').store(Plugin(name='app', data_dir='data', access=self.Access.APP))
 
     async def register_contacts(self):
         contact_svc = self.get_service('contact_svc')
@@ -137,8 +137,12 @@ class AppService(BaseService):
 
     """ PRIVATE """
 
+    async def _save_configuration(self):
+        with open('conf/default.yml', 'w') as config:
+            config.write(yaml.dump(self.get_config()))
+
     async def _destroy_plugins(self):
-        for plugin in await self._services.get('data_svc').locate('plugins'):
+        for plugin in await self._services.get('data_svc').locate('plugins', dict(enabled=True)):
             await plugin.destroy(self.get_services())
 
     async def _write_reports(self):
@@ -147,4 +151,5 @@ class AppService(BaseService):
         report = json.dumps(dict(self.get_service('contact_svc').report)).encode()
         await file_svc.save_file('contact_reports', report, r_dir)
         for op in await self.get_service('data_svc').locate('operations'):
-            await file_svc.save_file('operation_%s' % op.id,  json.dumps(op.report()).encode(), r_dir)
+            report = json.dumps(op.report(self.get_service('file_svc')))
+            await file_svc.save_file('operation_%s' % op.id, report.encode(), r_dir)
